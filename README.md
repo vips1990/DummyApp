@@ -14,6 +14,19 @@ python3 app.py
 
 Then open: `http://localhost:8000/`
 
+## Publish to GitHub
+
+1. Create a new repository on GitHub (e.g., `username/python-azure-vm-app`).
+2. Add the remote and push:
+
+```bash
+git remote add origin git@github.com:<USERNAME>/<REPO>.git
+git branch -M main
+git push -u origin main
+```
+
+Replace `<USERNAME>` and `<REPO>` with your GitHub username and repository name.
+
 ## Deploy to Azure VM (via GitHub Actions)
 
 1. Push this repo to GitHub.
