@@ -1,0 +1,205 @@
+---
+- name: Create Azure VM and configure for Python app
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    # Azure subscription and resource details
+    subscription_id: "{{ lookup('env', 'AZURE_SUBSCRIPTION_ID') }}"
+    resource_group: "my-python-app-rg"
+    location: "East US"
+    vm_name: "python-app-vm"
+    admin_username: "azureuser"
+    vm_size: "Standard_B1s"  # Small, cost-effective VM
+    image:
+      offer: "Ubuntu2204"
+      publisher: "Canonical"
+      sku: "22_04-lts-gen2"
+      version: "latest"
+    public_ip_name: "{{ vm_name }}-pip"
+    nsg_name: "{{ vm_name }}-nsg"
+    vnet_name: "{{ vm_name }}-vnet"
+    subnet_name: "{{ vm_name }}-subnet"
+
+  tasks:
+    # Ensure Azure CLI is authenticated (run 'az login' first)
+    - name: Check Azure CLI login
+      command: az account show
+      register: az_account
+      failed_when: false
+      changed_when: false
+
+    - name: Fail if not logged in to Azure
+      fail:
+        msg: "Please run 'az login' to authenticate with Azure CLI first"
+      when: az_account.rc != 0
+
+    # Create Resource Group
+    - name: Create resource group
+      azure.azcollection.azure_rm_resourcegroup:
+        name: "{{ resource_group }}"
+        location: "{{ location }}"
+        state: present
+
+    # Create Virtual Network and Subnet
+    - name: Create virtual network
+      azure.azcollection.azure_rm_virtualnetwork:
+        resource_group: "{{ resource_group }}"
+        name: "{{ vnet_name }}"
+        address_prefixes: "10.0.0.0/16"
+        state: present
+
+    - name: Create subnet
+      azure.azcollection.azure_rm_subnet:
+        resource_group: "{{ resource_group }}"
+        virtual_network: "{{ vnet_name }}"
+        name: "{{ subnet_name }}"
+        address_prefix: "10.0.1.0/24"
+        state: present
+
+    # Create Network Security Group with SSH and HTTP rules
+    - name: Create network security group
+      azure.azcollection.azure_rm_securitygroup:
+        resource_group: "{{ resource_group }}"
+        name: "{{ nsg_name }}"
+        rules:
+          - name: SSH
+            protocol: Tcp
+            destination_port_range: 22
+            access: Allow
+            priority: 1001
+            direction: Inbound
+          - name: HTTP
+            protocol: Tcp
+            destination_port_range: 80
+            access: Allow
+            priority: 1002
+            direction: Inbound
+          - name: CustomApp
+            protocol: Tcp
+            destination_port_range: 8000
+            access: Allow
+            priority: 1003
+            direction: Inbound
+        state: present
+
+    # Create Public IP
+    - name: Create public IP
+      azure.azcollection.azure_rm_publicipaddress:
+        resource_group: "{{ resource_group }}"
+        name: "{{ public_ip_name }}"
+        allocation_method: Static
+        state: present
+
+    # Create VM
+    - name: Create virtual machine
+      azure.azcollection.azure_rm_virtualmachine:
+        resource_group: "{{ resource_group }}"
+        name: "{{ vm_name }}"
+        vm_size: "{{ vm_size }}"
+        admin_username: "{{ admin_username }}"
+        ssh_password_enabled: false
+        ssh_public_keys:
+          - path: "/home/{{ admin_username }}/.ssh/authorized_keys"
+            key_data: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"  # Your SSH public key
+        image: "{{ image }}"
+        os_disk_size_gb: 30
+        network_interfaces:
+          - name: "{{ vm_name }}-nic"
+            resource_group: "{{ resource_group }}"
+            virtual_network: "{{ vnet_name }}"
+            subnet: "{{ subnet_name }}"
+            public_ip_name: "{{ public_ip_name }}"
+            security_group: "{{ nsg_name }}"
+        state: present
+      register: vm_info
+
+    # Wait for VM to be ready
+    - name: Wait for VM to be running
+      azure.azcollection.azure_rm_virtualmachine_info:
+        resource_group: "{{ resource_group }}"
+        name: "{{ vm_name }}"
+      register: vm_status
+      until: vm_status.vms[0].power_state == "VM running"
+      retries: 30
+      delay: 10
+
+    # Get VM public IP
+    - name: Get VM public IP
+      azure.azcollection.azure_rm_publicipaddress_info:
+        resource_group: "{{ resource_group }}"
+        name: "{{ public_ip_name }}"
+      register: pip_info
+
+    - name: Display VM details
+      debug:
+        msg:
+          - "VM Name: {{ vm_name }}"
+          - "Public IP: {{ pip_info.publicipaddresses[0].ip_address }}"
+          - "SSH Command: ssh {{ admin_username }}@{{ pip_info.publicipaddresses[0].ip_address }}"
+
+    # Configure the VM (install Git, Python, etc.)
+    - name: Configure VM
+      hosts: "{{ vm_name }}"
+      gather_facts: false
+      become: true
+
+      tasks:
+        - name: Wait for SSH to be available
+          wait_for_connection:
+            delay: 30
+            timeout: 300
+
+        - name: Update apt cache
+          apt:
+            update_cache: yes
+
+        - name: Install required packages
+          apt:
+            name:
+              - git
+              - python3
+              - python3-pip
+              - python3-venv
+              - gunicorn
+            state: present
+
+        - name: Verify installations
+          command: "{{ item }}"
+          loop:
+            - git --version
+            - python3 --version
+            - pip3 --version
+            - gunicorn --version
+          register: version_checks
+          changed_when: false
+
+        - name: Display version info
+          debug:
+            var: version_checks.results
+
+        - name: Create app directory
+          file:
+            path: "/home/{{ admin_username }}/app"
+            state: directory
+            owner: "{{ admin_username }}"
+            group: "{{ admin_username }}"
+            mode: '0755'
+
+        - name: Clone your repo (replace with your actual repo URL)
+          git:
+            repo: "https://github.com/vips1990/DummyApp.git"
+            dest: "/home/{{ admin_username }}/app"
+            version: main
+          become_user: "{{ admin_username }}"
+
+        - name: Install Python dependencies
+          pip:
+            requirements: "/home/{{ admin_username }}/app/requirements.txt"
+            executable: pip3
+          become_user: "{{ admin_username }}"
+
+        - name: Display completion message
+          debug:
+            msg: "VM is ready! App cloned and dependencies installed. You can now run: gunicorn --bind 0.0.0.0:8000 app:app"
