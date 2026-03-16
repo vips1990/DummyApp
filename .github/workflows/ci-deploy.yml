@@ -4,7 +4,7 @@ on:
   push:
     # Run CI on all branches
   pull_request:
-    # Also run CI on pull requests
+    types: [opened, synchronize, reopened, closed]
 
 jobs:
   build:
@@ -30,23 +30,12 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check if this is a merge commit
-        id: check_merge
-        run: |
-          # Check if the latest commit is a merge commit
-          if git show --no-patch --format=%p HEAD | grep -q " "; then
-            echo "is_merge=true" >> $GITHUB_OUTPUT
-          else
-            echo "is_merge=false" >> $GITHUB_OUTPUT
-          fi
-
       - name: Deploy to Azure VM via SSH
-        if: steps.check_merge.outputs.is_merge == 'true'
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ secrets.AZURE_VM_HOST }}
