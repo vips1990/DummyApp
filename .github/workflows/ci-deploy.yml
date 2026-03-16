@@ -32,10 +32,22 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
+      - name: Check if this is a merge commit
+        id: check_merge
+        run: |
+          # Check if the latest commit is a merge commit
+          if git show --no-patch --format=%p HEAD | grep -q " "; then
+            echo "is_merge=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_merge=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Checkout
+        if: steps.check_merge.outputs.is_merge == 'true'
         uses: actions/checkout@v4
 
       - name: Deploy to Azure VM via SSH
+        if: steps.check_merge.outputs.is_merge == 'true'
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ secrets.AZURE_VM_HOST }}
@@ -45,8 +57,9 @@ jobs:
           script: |
             set -e
             cd /home/${{ secrets.AZURE_VM_USER }}/app
-            git pull origin main
-            python -m pip install --upgrade pip
+            git fetch origin main
+            git reset --hard origin/main
+            python3 -m pip install --upgrade pip
             pip install -r requirements.txt
             # Run the app with gunicorn (adjust bind/worker count as needed)
             pkill -f "gunicorn.*app:app" || true
