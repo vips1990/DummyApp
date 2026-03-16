@@ -47,8 +47,8 @@ jobs:
             cd /home/${{ secrets.AZURE_VM_USER }}/app
             git fetch origin main
             git reset --hard origin/main
-            python3 -m pip install --upgrade pip
-            pip install -r requirements.txt
-            # Run the app with gunicorn (adjust bind/worker count as needed)
+            python3 -m pip install --upgrade pip --user
+            python3 -m pip install --user -r requirements.txt
+            # Run the app with gunicorn (daemon mode keeps it running after SSH exits)
             pkill -f "gunicorn.*app:app" || true
-            nohup gunicorn --bind 0.0.0.0:8000 app:app &
+            python3 -m gunicorn --daemon --bind 0.0.0.0:8000 app:app
