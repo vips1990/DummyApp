@@ -49,6 +49,7 @@ jobs:
             git reset --hard origin/main
             python3 -m pip install --upgrade pip --user
             python3 -m pip install --user -r requirements.txt
-            # Run the app with gunicorn (daemon mode keeps it running after SSH exits)
+            # Run the app with gunicorn (start in detached mode so SSH session can exit cleanly)
             pkill -f "gunicorn.*app:app" || true
-            python3 -m gunicorn --daemon --bind 0.0.0.0:8000 app:app
+            nohup setsid python3 -m gunicorn --bind 0.0.0.0:8000 app:app > /home/${{ secrets.AZURE_VM_USER }}/gunicorn.log 2>&1 &
+            echo "deployment finished"
