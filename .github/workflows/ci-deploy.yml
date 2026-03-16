@@ -2,8 +2,9 @@ name: CI Build & Deploy to Azure VM
 
 on:
   push:
-    branches:
-      - main
+    # Run CI on all branches
+  pull_request:
+    # Also run CI on pull requests
 
 jobs:
   build:
@@ -29,6 +30,7 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
