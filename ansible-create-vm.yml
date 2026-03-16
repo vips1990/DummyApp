@@ -21,6 +21,8 @@
     nsg_name: "{{ vm_name }}-nsg"
     vnet_name: "{{ vm_name }}-vnet"
     subnet_name: "{{ vm_name }}-subnet"
+    ssh_public_key_path: "~/.ssh/id_rsa.pub"
+    ssh_private_key_path: "~/.ssh/id_rsa"
 
   tasks:
     # Ensure Azure CLI is authenticated (run 'az login' first)
@@ -102,7 +104,7 @@
         ssh_password_enabled: false
         ssh_public_keys:
           - path: "/home/{{ admin_username }}/.ssh/authorized_keys"
-            key_data: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"  # Your SSH public key
+            key_data: "{{ lookup('file', ssh_public_key_path) }}"
         image: "{{ image }}"
         os_disk_size_gb: 30
         network_interfaces:
@@ -139,67 +141,74 @@
           - "Public IP: {{ pip_info.publicipaddresses[0].ip_address }}"
           - "SSH Command: ssh {{ admin_username }}@{{ pip_info.publicipaddresses[0].ip_address }}"
 
-    # Configure the VM (install Git, Python, etc.)
-    - name: Configure VM
-      hosts: "{{ vm_name }}"
-      gather_facts: false
-      become: true
+    - name: Add created VM to inventory
+      add_host:
+        name: "{{ vm_name }}"
+        ansible_host: "{{ pip_info.publicipaddresses[0].ip_address }}"
+        ansible_user: "{{ admin_username }}"
+        ansible_ssh_private_key_file: "{{ ssh_private_key_path }}"
+        ansible_python_interpreter: /usr/bin/python3
 
-      tasks:
-        - name: Wait for SSH to be available
-          wait_for_connection:
-            delay: 30
-            timeout: 300
+- name: Configure VM
+  hosts: "{{ vm_name }}"
+  gather_facts: false
+  become: true
 
-        - name: Update apt cache
-          apt:
-            update_cache: yes
+  tasks:
+    - name: Wait for SSH to be available
+      wait_for_connection:
+        delay: 30
+        timeout: 300
 
-        - name: Install required packages
-          apt:
-            name:
-              - git
-              - python3
-              - python3-pip
-              - python3-venv
-              - gunicorn
-            state: present
+    - name: Update apt cache
+      apt:
+        update_cache: yes
 
-        - name: Verify installations
-          command: "{{ item }}"
-          loop:
-            - git --version
-            - python3 --version
-            - pip3 --version
-            - gunicorn --version
-          register: version_checks
-          changed_when: false
+    - name: Install required packages
+      apt:
+        name:
+          - git
+          - python3
+          - python3-pip
+          - python3-venv
+          - gunicorn
+        state: present
 
-        - name: Display version info
-          debug:
-            var: version_checks.results
+    - name: Verify installations
+      command: "{{ item }}"
+      loop:
+        - git --version
+        - python3 --version
+        - pip3 --version
+        - gunicorn --version
+      register: version_checks
+      changed_when: false
 
-        - name: Create app directory
-          file:
-            path: "/home/{{ admin_username }}/app"
-            state: directory
-            owner: "{{ admin_username }}"
-            group: "{{ admin_username }}"
-            mode: '0755'
+    - name: Display version info
+      debug:
+        var: version_checks.results
 
-        - name: Clone your repo (replace with your actual repo URL)
-          git:
-            repo: "https://github.com/vips1990/DummyApp.git"
-            dest: "/home/{{ admin_username }}/app"
-            version: main
-          become_user: "{{ admin_username }}"
+    - name: Create app directory
+      file:
+        path: "/home/{{ admin_username }}/app"
+        state: directory
+        owner: "{{ admin_username }}"
+        group: "{{ admin_username }}"
+        mode: '0755'
 
-        - name: Install Python dependencies
-          pip:
-            requirements: "/home/{{ admin_username }}/app/requirements.txt"
-            executable: pip3
-          become_user: "{{ admin_username }}"
+    - name: Clone your repo (replace with your actual repo URL)
+      git:
+        repo: "https://github.com/vips1990/DummyApp.git"
+        dest: "/home/{{ admin_username }}/app"
+        version: main
+      become_user: "{{ admin_username }}"
 
-        - name: Display completion message
-          debug:
-            msg: "VM is ready! App cloned and dependencies installed. You can now run: gunicorn --bind 0.0.0.0:8000 app:app"
+    - name: Install Python dependencies
+      pip:
+        requirements: "/home/{{ admin_username }}/app/requirements.txt"
+        executable: pip3
+      become_user: "{{ admin_username }}"
+
+    - name: Display completion message
+      debug:
+        msg: "VM is ready! App cloned and dependencies installed. You can now run: gunicorn --bind 0.0.0.0:8000 app:app"
