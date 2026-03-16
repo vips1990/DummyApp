@@ -1,4 +1,4 @@
-## GitHub Actions Workflow Explanation (for Beginners)
+## GitHub Actions Workflow Explanation
 
 This is a **GitHub Actions workflow file** — it's like an automated script that runs on GitHub's servers whenever you push code to your repository. Think of it as a robot that builds, tests, and deploys your app automatically, so you don't have to do it manually every time.
 
