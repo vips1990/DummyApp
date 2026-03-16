@@ -32,6 +32,9 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Check if this is a merge commit
         id: check_merge
         run: |
@@ -41,10 +44,6 @@ jobs:
           else
             echo "is_merge=false" >> $GITHUB_OUTPUT
           fi
-
-      - name: Checkout
-        if: steps.check_merge.outputs.is_merge == 'true'
-        uses: actions/checkout@v4
 
       - name: Deploy to Azure VM via SSH
         if: steps.check_merge.outputs.is_merge == 'true'
