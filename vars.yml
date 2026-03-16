@@ -1,0 +1,16 @@
+# Azure subscription and resource details
+    subscription_id: "{{ lookup('env', 'AZURE_SUBSCRIPTION_ID') }}"
+    resource_group: "my-python-app-rg"
+    location: "canadacentral"
+    vm_name: "python-app-vm"
+    admin_username: "azureuser"
+    vm_size: "Standard_D2s_v3"  # Small, cost-effective VM
+    image:
+      offer: "Ubuntu2204"
+      publisher: "Canonical"
+      sku: "22_04-lts-gen2"
+      version: "latest"
+    public_ip_name: "{{ vm_name }}-pip"
+    nsg_name: "{{ vm_name }}-nsg"
+    vnet_name: "{{ vm_name }}-vnet"
+    subnet_name: "{{ vm_name }}-subnet"
