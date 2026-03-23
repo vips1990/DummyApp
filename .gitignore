@@ -1,0 +1,7 @@
+# Ansible Vault
+.vault_pass.txt
+
+# Other common ignores
+__pycache__/
+*.pyc
+.env
