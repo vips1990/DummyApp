@@ -1,118 +1,111 @@
-## GitHub Actions Workflow Explanation Test
+## GitHub Actions Workflow Explanation
 
-This is a **GitHub Actions workflow file** — it's like an automated script that runs on GitHub's servers whenever you push code to your repository. Think of it as a robot that builds, tests, and deploys your app automatically, so you don't have to do it manually every time.
+This is a **GitHub Actions workflow file** — it's like an automated script that runs on GitHub's servers whenever you push code or merge a pull request. Think of it as a robot that builds and deploys your app automatically, so you don't have to do it manually every time.
 
 ### Quick Background: What is GitHub Actions?
-- **GitHub Actions** is a free tool built into GitHub that lets you automate tasks like running tests, building apps, or deploying to servers.
-- Workflows are defined in YAML files (like this one) stored in your repo under `.github/workflows/`.
-- They run on virtual machines (called "runners") provided by GitHub, triggered by events like code pushes or pull requests.
+- **GitHub Actions** is a free tool built into GitHub that lets you automate tasks like running tests or deploying to servers.
+- Workflows are defined in YAML files stored in your repo under `.github/workflows/`.
+- They run on virtual machines (called "runners") provided by GitHub, triggered by events like pushes or pull requests.
+
+---
 
 ### Breaking Down This Specific Workflow
 
-The file is named something like `ci-deploy.yml` and defines a pipeline with two main parts: **building** your app and **deploying** it to an Azure VM.
+The file is `ci-deploy.yml` and defines a pipeline with two jobs: **build** and **deploy**.
 
 #### 1. **Trigger: When Does This Run?**
 ```yaml
 on:
   push:
-    branches:
-      - main
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
 ```
-- This workflow **triggers automatically** whenever you push code to the `main` branch.
-- No manual start needed — GitHub detects the push and starts the workflow.
+- **Build** runs on every push to any branch and on every pull request event.
+- **Deploy** only runs when a pull request is **merged into `main`** (controlled by an `if:` condition on the deploy job).
+- This means: pushing to a feature branch runs CI (build/test) but does NOT deploy. Only merging to `main` triggers a deployment.
 
-#### 2. **Jobs: The Two Main Tasks**
-Jobs are like steps in a recipe. This workflow has two jobs that run in sequence.
+---
 
-##### **Job 1: `build` (Build & Test Your App)**
+#### 2. **Job 1: `build` (Build & Test Your App)**
 ```yaml
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.12'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Run tests (if any)
-        run: |
-          echo "No tests configured yet"
+      - Checkout code
+      - Set up Python 3.12
+      - Install dependencies (pip install -r requirements.txt)
+      - Run tests (placeholder — no tests yet)
 ```
-- **Runs on**: A free Ubuntu (Linux) virtual machine from GitHub.
-- **What it does**:
-  - **Checkout**: Downloads your repository code to the virtual machine.
-  - **Set up Python**: Installs Python 3.12 on the machine.
-  - **Install dependencies**: Upgrades pip (Python's package manager) and installs packages from `requirements.txt` (like Flask, etc.).
-  - **Run tests**: Currently just prints a message (no tests are set up yet). In a real app, this would run unit tests to catch bugs early.
-- **Purpose**: Ensures your code builds correctly and dependencies install without errors before deploying.
+- Runs on a free Ubuntu virtual machine from GitHub.
+- Ensures your code and dependencies install cleanly before any deployment happens.
+- If this fails, the deploy job will not run.
 
-##### **Job 2: `deploy` (Deploy to Azure VM)**
+---
+
+#### 3. **Job 2: `deploy` (Deploy to Azure VM)**
 ```yaml
   deploy:
     needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Deploy to Azure VM via SSH
-        uses: appleboy/ssh-action@v0.1.10
-        with:
-          host: ${{ secrets.AZURE_VM_HOST }}
-          username: ${{ secrets.AZURE_VM_USER }}
-          key: ${{ secrets.AZURE_VM_SSH_KEY }}
-          port: ${{ secrets.AZURE_VM_PORT }}
-          script: |
-            set -e
-            cd /home/${{ secrets.AZURE_VM_USER }}/app
-            git pull origin main
-            python -m pip install --upgrade pip
-            pip install -r requirements.txt
-            # Run the app with gunicorn (adjust bind/worker count as needed)
-            pkill -f "gunicorn.*app:app" || true
-            nohup gunicorn --bind 0.0.0.0:8000 app:app &
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main'
 ```
-- **Runs on**: Another Ubuntu virtual machine.
-- **Dependency**: `needs: build` means it only runs **after** the build job succeeds. If build fails, deploy won't happen.
-- **What it does**:
-  - **Checkout**: Downloads your code again (needed for this job).
-  - **Deploy via SSH**: Uses a pre-built action to connect to your Azure VM securely.
-    - **Secrets**: Pulls sensitive info (VM IP, username, SSH key, port) from GitHub's encrypted secrets (you set these in repo settings — never hardcode them!).
-    - **Script on VM**: Runs these commands remotely on your Azure VM:
-      - `cd /home/${{ secrets.AZURE_VM_USER }}/app`: Go to the app folder on the VM.
-      - `git pull origin main`: Pull the latest code from GitHub.
-      - Install/update dependencies.
-      - Kill any existing app process (`pkill`).
-      - Start the app with **Gunicorn** (a production web server for Python apps) on port 8000, running in the background (`nohup`).
-- **Purpose**: Automatically updates and restarts your app on the Azure VM after every push to `main`.
+- Only runs after `build` succeeds AND a PR has been merged into `main`.
+- Uses the `appleboy/ssh-action` to connect to your Azure VM over SSH and run a deploy script remotely.
+
+**What the deploy script does on the VM:**
+1. `cd /home/<user>/app` — go to the app folder
+2. `git fetch origin main && git reset --hard origin/main` — pull latest code (hard reset ensures clean state)
+3. `python3 -m pip install --user -r requirements.txt` — install/update dependencies
+4. `pkill -f "gunicorn.*app:app" || true` — stop any running gunicorn process
+5. `nohup setsid python3 -m gunicorn --bind 127.0.0.1:8000 app:app &` — restart gunicorn bound to localhost only
+
+**Why localhost only?** Gunicorn binds to `127.0.0.1:8000` (not publicly accessible). Nginx (set up by Ansible) acts as a reverse proxy, receiving traffic on port 80 and forwarding it to gunicorn internally. This is more secure than exposing gunicorn directly.
+
+---
 
 ### How It All Works Together
-1. You push code to `main` → Workflow starts.
-2. **Build job** runs first: Sets up environment, installs stuff, runs tests.
-3. If build passes, **deploy job** runs: SSH into Azure VM, pull code, install deps, restart app.
-4. Your app is now live on the VM at `http://<VM-IP>:8000`.
 
-### Setup Requirements
-- **GitHub Secrets**: Add these in your repo settings (Settings → Secrets and variables → Actions):
-  - `AZURE_VM_HOST`: Your VM's public IP (e.g., `123.45.67.89`).
-  - `AZURE_VM_USER`: SSH username (e.g., `azureuser`).
-  - `AZURE_VM_SSH_KEY`: Private SSH key content (generate with `ssh-keygen`).
-  - `AZURE_VM_PORT`: Usually `22`.
-- **VM Setup**: Your Azure VM needs Git, Python 3.12+, and the app cloned in `/home/<user>/app`.
+```
+Developer pushes to feature branch
+        ↓
+  Build job runs (CI check) — no deploy
 
-### Why This is Useful
-- **Automation**: No more manual deploys — just push code and it's live.
-- **Reliability**: Tests catch issues before deployment.
-- **Security**: Secrets keep credentials safe.
-- **Free**: GitHub provides free minutes for public repos.
+Developer opens PR → merges into main
+        ↓
+  Build job runs first
+        ↓ (if build passes)
+  Deploy job SSHs into Azure VM
+        ↓
+  Code updated, gunicorn restarted
+        ↓
+  Nginx serves app at http://<VM-IP>:80
+```
 
-If you run into issues or want to modify it (e.g., add real tests), let me know!
+---
+
+### Infrastructure: What Ansible Sets Up (One-Time)
+
+Before GitHub Actions can deploy, the Azure VM must be provisioned by running the Ansible playbook (`ansible-create-vm.yml`). Ansible handles all infrastructure setup:
+- Creates Azure resource group, VNet, subnet, NSG, public IP, NIC, and VM
+- Installs: git, python3, python3-pip, python3-venv, gunicorn, nginx
+- Configures Nginx as a reverse proxy (port 80 → localhost:8000)
+- Clones the app repo into `/home/azureuser/app`
+
+GitHub Actions only handles **code updates** after initial setup — it does not touch infrastructure.
+
+---
+
+### GitHub Secrets Required
+Add these in repo Settings → Secrets and variables → Actions:
+- `AZURE_VM_HOST`: Your VM's public IP (e.g., `123.45.67.89`)
+- `AZURE_VM_USER`: SSH username (e.g., `azureuser`)
+- `AZURE_VM_SSH_KEY`: Private SSH key content
+- `AZURE_VM_PORT`: Usually `22`
+
+---
+
+### Why This Approach?
+- **Automation**: Merge a PR and the app deploys itself.
+- **Safety**: Only merged PRs to `main` trigger deploys — not every push.
+- **Security**: Gunicorn is not exposed directly; Nginx acts as the public-facing layer. Secrets are stored in GitHub, never in code.
+- **Clear separation**: Ansible owns infrastructure setup; GitHub Actions owns code deployment.
