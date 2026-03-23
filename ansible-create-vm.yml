@@ -205,6 +205,14 @@
                   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
                   proxy_set_header X-Forwarded-Proto $scheme;
               }
+
+              location /add {
+                  proxy_pass http://127.0.0.1:8001;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+              }
           }
 
     - name: Enable app site
@@ -276,10 +284,12 @@
           [Install]
           WantedBy=multi-user.target
 
-    - name: Allow azureuser to restart gunicorn without password
+    - name: Allow azureuser to restart gunicorn services without password
       copy:
         dest: /etc/sudoers.d/gunicorn
-        content: "{{ admin_username }} ALL=(ALL) NOPASSWD: /bin/systemctl restart gunicorn\n"
+        content: |
+          {{ admin_username }} ALL=(ALL) NOPASSWD: /bin/systemctl restart gunicorn
+          {{ admin_username }} ALL=(ALL) NOPASSWD: /bin/systemctl restart gunicorn-app2
         validate: visudo -cf %s
         mode: '0440'
 
@@ -289,6 +299,44 @@
         state: started
         enabled: true
         daemon_reload: true
+
+    - name: Create app2 directory
+      file:
+        path: "/home/{{ admin_username }}/app2"
+        state: directory
+        owner: "{{ admin_username }}"
+        group: "{{ admin_username }}"
+        mode: '0755'
+
+
+    - name: Create gunicorn-app2 systemd service
+      copy:
+        dest: /etc/systemd/system/gunicorn-app2.service
+        content: |
+          [Unit]
+          Description=Gunicorn instance to serve adder app
+          After=network.target
+
+          [Service]
+          User={{ admin_username }}
+          WorkingDirectory=/home/{{ admin_username }}/app2
+          ExecStart=/home/{{ admin_username }}/.local/bin/gunicorn --bind 127.0.0.1:8001 app2:app
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Enable and start gunicorn-app2 service
+      service:
+        name: gunicorn-app2
+        state: started
+        enabled: true
+        daemon_reload: true
+
+    - name: Reload Nginx to pick up new location block
+      service:
+        name: nginx
+        state: reloaded
 
     - name: Display completion message
       debug:

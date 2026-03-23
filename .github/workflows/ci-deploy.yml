@@ -35,7 +35,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Deploy to Azure VM via SSH
+      - name: Deploy App 1 to Azure VM via SSH
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ secrets.AZURE_VM_HOST }}
@@ -50,4 +50,27 @@ jobs:
             python3 -m pip install --upgrade pip --user
             python3 -m pip install --user -r requirements.txt
             sudo systemctl restart gunicorn
-            echo "deployment finished"
+            echo "App 1 deployment finished"
+
+      - name: Copy App 2 to Azure VM via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.AZURE_VM_HOST }}
+          username: ${{ secrets.AZURE_VM_USER }}
+          key: ${{ secrets.AZURE_VM_SSH_KEY }}
+          port: ${{ secrets.AZURE_VM_PORT }}
+          source: app2.py
+          target: /home/${{ secrets.AZURE_VM_USER }}/app2/
+
+      - name: Restart App 2 on Azure VM via SSH
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.AZURE_VM_HOST }}
+          username: ${{ secrets.AZURE_VM_USER }}
+          key: ${{ secrets.AZURE_VM_SSH_KEY }}
+          port: ${{ secrets.AZURE_VM_PORT }}
+          script: |
+            set -e
+            python3 -m pip install --user flask
+            sudo systemctl restart gunicorn-app2
+            echo "App 2 deployment finished"
