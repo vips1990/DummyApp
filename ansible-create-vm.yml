@@ -259,6 +259,37 @@
         executable: pip3
       become_user: "{{ admin_username }}"
 
+    - name: Create gunicorn systemd service
+      copy:
+        dest: /etc/systemd/system/gunicorn.service
+        content: |
+          [Unit]
+          Description=Gunicorn instance to serve Flask app
+          After=network.target
+
+          [Service]
+          User={{ admin_username }}
+          WorkingDirectory=/home/{{ admin_username }}/app
+          ExecStart=/home/{{ admin_username }}/.local/bin/gunicorn --bind 127.0.0.1:8000 app:app
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Allow azureuser to restart gunicorn without password
+      copy:
+        dest: /etc/sudoers.d/gunicorn
+        content: "{{ admin_username }} ALL=(ALL) NOPASSWD: /bin/systemctl restart gunicorn\n"
+        validate: visudo -cf %s
+        mode: '0440'
+
+    - name: Enable and start gunicorn service
+      service:
+        name: gunicorn
+        state: started
+        enabled: true
+        daemon_reload: true
+
     - name: Display completion message
       debug:
-        msg: "VM is ready! App cloned and dependencies installed. You can now run: gunicorn --bind 0.0.0.0:8000 app:app"
+        msg: "VM is ready! App is running via gunicorn systemd service, proxied by Nginx on port 80."
